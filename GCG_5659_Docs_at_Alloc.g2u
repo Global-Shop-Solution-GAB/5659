@@ -1,0 +1,305 @@
+Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'BN Sept 1, 2019
+'This program will help create Doc Control link when at Allocation Screen for Sales Orders.
+f.Intrinsic.Control.Try
+	v.Local.sError.Declare
+	
+	
+	'Inventory > Transactions > Part Allocations	
+	f.ODBC.Connection!conx.OpenCompanyConnection(300)
+
+    F.Intrinsic.Control.SelectCase(v.Caller.Hook)
+    	'Pre-Allocate hook
+	    F.Intrinsic.Control.Case(33150)
+	    	f.Intrinsic.Control.CallSub("Save_Pre_Time","sFlag","A")
+		
+		'Post-Allocate hook
+		F.Intrinsic.Control.Case(33155)
+			f.Intrinsic.Control.CallSub("Get_Pre_Time","sFlag","A")
+			f.Intrinsic.Control.If(v.Args.sDateReturn,=,"")
+				f.Intrinsic.UI.Msgbox("Pre Time of Allocation is blank and cannot create Document Control ID for this Allocation Item","Attention")
+				f.Intrinsic.Control.CallSub("Unload")
+			f.Intrinsic.Control.EndIf
+			'Create Link ID
+			f.Intrinsic.Control.CallSub("Create_Link_And_Copy_Docs","sPreDate",v.Args.sDateReturn,"sPreTime",v.Args.sTimeReturn)			
+		
+		'Pre-Unallocate hook
+		F.Intrinsic.Control.Case(33162)
+			f.Intrinsic.Control.CallSub("Save_Pre_Time","sFlag","U")
+			
+		'Post-Unallocate hook
+		F.Intrinsic.Control.Case(33163)	
+			f.Intrinsic.Control.CallSub("Get_Pre_Time","sFlag","U")
+			f.Intrinsic.Control.If(v.Args.sDateReturn,=,"")
+				f.Intrinsic.UI.Msgbox("Pre Time of Unallocation is blank and cannot create Document Control ID for this UnAllocation Item","Attention")
+				f.Intrinsic.Control.CallSub("Unload")
+			f.Intrinsic.Control.EndIf
+			'Delete Link ID
+			f.Intrinsic.Control.CallSub("Delete_Link","sPreDate",v.Args.sDateReturn,"sPreTime",v.Args.sTimeReturn)
+	
+     F.Intrinsic.Control.EndSelect
+     
+     f.Intrinsic.Control.CallSub("Unload")	
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Subroutine called from:{6}{1}Error Occurred: {3}{1}Description: {4}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,v.Ambient.SubroutineCalledFrom,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	f.Intrinsic.Control.CallSub("Unload")
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.UnLoad.Start
+f.Intrinsic.Control.Try
+	v.Local.sError.Declare
+
+	F.Intrinsic.Control.If(V.ODBC.conx.State,=,1)
+		F.ODBC.Connection!conx.close
+	F.Intrinsic.Control.EndIf
+	
+	f.Intrinsic.Control.End
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Subroutine called from:{6}{1}Error Occurred: {3}{1}Description: {4}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,v.Ambient.SubroutineCalledFrom,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End	
+F.Intrinsic.Control.EndTry
+Program.Sub.UnLoad.End
+
+Program.Sub.Save_Pre_Time.Start
+f.Intrinsic.Control.Try
+	v.Local.sError.Declare
+	v.Local.sSQL.Declare
+	v.Local.sRet.Declare
+	v.Local.sDateTrans.Declare
+	v.Local.sTimeTrans.Declare
+	v.Local.iNow.Declare
+	
+	v.Local.sDateTrans.Set(v.Ambient.Date.FormatYYYYMMDD)
+	v.Local.sTimeTrans.Set(v.Ambient.Now.FormatHHNNSS)
+	
+	v.Local.iNow.Set(v.Ambient.Now.FormatHHNNSS)
+	f.Intrinsic.Math.Sub(v.Local.iNow,2,v.Local.iNow)
+	f.Intrinsic.String.LPad(v.Local.iNow,"0",6,v.Local.sTimeTrans)
+	
+	f.Intrinsic.String.Build("Select * from GCG_5659_Time_Alloc where UserID = '{0}' and Trmnl = '{1}' and FlagAllocUnalloc = '{2}'",v.Caller.User,v.Caller.Terminal,v.Args.sFlag,v.Local.sSQL)
+	
+	f.ODBC.Connection!conx.ExecuteAndReturn(v.Local.sSQL,v.Local.sRet)
+	f.Intrinsic.Control.If(v.Local.sRet,<>,"")
+		f.Intrinsic.String.Build("Update GCG_5659_Time_Alloc set DateTrans = '{3}', TimeTrans = '{4}00' where UserID = '{0}' and Trmnl = '{1}' and FlagAllocUnalloc = '{2}'",v.Caller.User,v.Caller.Terminal,v.Args.sFlag,v.Local.sDateTrans.Right6,v.Local.sTimeTrans,v.Local.sSQL)
+	f.Intrinsic.Control.Else
+		f.Intrinsic.String.Build("Insert into GCG_5659_Time_Alloc (UserID,Trmnl,FlagAllocUnalloc,DateTrans,TimeTrans) values ('{0}','{1}','{2}','{3}','{4}00')",v.Caller.User,v.Caller.Terminal,v.Args.sFlag,v.Local.sDateTrans.Right6,v.Local.sTimeTrans,v.Local.sSQL)	
+	f.Intrinsic.Control.EndIf
+	f.ODBC.Connection!conx.Execute(v.Local.sSQL)
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Subroutine called from:{6}{1}Error Occurred: {3}{1}Description: {4}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,v.Ambient.SubroutineCalledFrom,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End	
+F.Intrinsic.Control.EndTry
+Program.Sub.Save_Pre_Time.End
+
+Program.Sub.Get_Pre_Time.Start
+f.Intrinsic.Control.Try
+	v.Local.sError.Declare
+	v.Local.sSQL.Declare
+	v.Local.sRet.Declare	
+	v.Local.sTimeReturn.Declare
+	v.Local.sDateReturn.Declare
+		
+	f.Intrinsic.String.Build("Select Top 1 DateTrans,TimeTrans from GCG_5659_Time_Alloc where UserID = '{0}' and Trmnl = '{1}' and FlagAllocUnalloc = '{2}'",v.Caller.User,v.Caller.Terminal,v.Args.sFlag,v.Local.sSQL)	
+	f.ODBC.Connection!conx.ExecuteAndReturn(v.Local.sSQL,v.Local.sRet)
+	f.Intrinsic.Control.If(v.Local.sRet,<>,"")
+		f.Intrinsic.String.Split(v.Local.sRet,"*!*",v.Local.sRet)
+		v.Local.sDateReturn.Set(v.Local.sRet(0))
+		v.Local.sTimeReturn.Set(v.Local.sRet(1))
+		f.Intrinsic.String.Build("Delete from GCG_5659_Time_Alloc where UserID = '{0}' and Trmnl = '{1}' and FlagAllocUnalloc = '{2}'",v.Caller.User,v.Caller.Terminal,v.Args.sFlag,v.Local.sSQL)
+		f.ODBC.Connection!conx.Execute(v.Local.sSQL)
+	f.Intrinsic.Control.Else
+		v.Local.sDateReturn.Set("")
+		v.Local.sTimeReturn.Set("")	
+	f.Intrinsic.Control.EndIf
+	
+	f.Intrinsic.Variable.AddRV("sDateReturn",v.Local.sDateReturn)
+	f.Intrinsic.Variable.AddRV("sTimeReturn",v.Local.sTimeReturn)
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Subroutine called from:{6}{1}Error Occurred: {3}{1}Description: {4}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,v.Ambient.SubroutineCalledFrom,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End	
+F.Intrinsic.Control.EndTry
+Program.Sub.Get_Pre_Time.End
+
+Program.Sub.Create_Link_And_Copy_Docs.Start
+f.Intrinsic.Control.Try
+	v.Local.sError.Declare
+	v.Local.sSQL.Declare
+	v.Local.sRet.Declare
+	v.Local.sItemID.Declare
+	v.Local.iItemLinkID.Declare(long)
+	v.Local.sPart.Declare
+	v.Local.sLoc.Declare
+	v.Local.sLot.Declare
+	v.Local.sHeat.Declare
+	v.Local.sSerial.Declare
+	v.Local.sBin.Declare
+	
+	v.Local.sDepLot.Declare
+	v.Local.sDepHeat.Declare
+	v.Local.sDepSerial.Declare
+	v.Local.sDepBin.Declare	
+	
+	v.Local.iNow.Declare
+	v.Local.sNow.Declare
+	v.Local.sOrder.Declare
+	v.Local.sLine.Declare
+	v.Local.sItemIDMaster.Declare
+	v.Local.iLinkIDMaster.Declare
+	v.Local.iCnt.Declare
+	v.Local.iBit.Declare
+	v.Local.bINV_NON_REV.Declare
+
+	'Part and Loc
+	f.Intrinsic.String.GSSPartString(Variable.Passed.000005,Variable.Passed.000006,v.Local.sPart)
+	f.Intrinsic.String.RPad(Variable.Passed.000008," ",2,v.Local.sLoc)
+	
+	'Order and Line
+	f.Intrinsic.String.LPad(Variable.Passed.000145,"0",7,v.Local.sOrder)
+	f.Intrinsic.String.LPad(Variable.Passed.000147,"0",3,v.Local.sLine)
+
+	'Get Now in milisec
+	v.Local.iNow.Set(v.Ambient.Now.FormatHHNNSS)
+	f.Intrinsic.Math.Add(v.Local.iNow,1,v.Local.iNow)
+	f.Intrinsic.String.LPad(v.Local.iNow,"0",6,v.Local.sNow)
+	f.Intrinsic.String.Build("{0}00",v.Local.sNow,v.Local.sNow)	
+	
+	'Get the destination item (I10)
+	f.Intrinsic.String.Build("select Top 1 Lot,Bin,Heat,Serial_Number from ITEM_HISTORY where Date_History = '{0}' and Part = '{1}' and Location = '{2}' and (Time_item_history between '{3}' and '{4}') and Code_transaction = 'I10' and  Userid = '{5}' and Order_no = '{6}' and order_line = '{7}'  and Program_Used = 'INV060' Order by  Time_item_history Desc",v.Args.sPreDate,v.Local.sPart,v.Local.sLoc,v.Args.sPreTime,v.Local.sNow,v.Caller.User,v.Local.sOrder,v.Local.sLine,v.Local.sSQL)
+	f.ODBC.Connection!conx.ExecuteAndReturn(v.Local.sSQL,v.Local.sRet)
+	f.Intrinsic.Control.If(v.Local.sRet,<>,"")
+		f.Intrinsic.String.Split(v.Local.sRet,"*!*",v.Local.sRet)
+		f.Intrinsic.String.RPad(v.Local.sRet(0)," ",15,v.Local.sLot)
+		f.Intrinsic.String.RPad(v.Local.sRet(1)," ",6,v.Local.sBin)
+		f.Intrinsic.String.RPad(v.Local.sRet(2)," ",15,v.Local.sHeat)
+		f.Intrinsic.String.RPad(v.Local.sRet(3)," ",30,v.Local.sSerial)		
+		f.Intrinsic.Control.Else
+		f.Intrinsic.UI.Msgbox("No record found for I10 transaction in Item History to create Document Control Link","Attention")
+		f.Intrinsic.Control.CallSub("Unload")
+	f.Intrinsic.Control.EndIf	
+
+	'Get the departure item (I40)
+	f.Intrinsic.String.Build("select Top 1 Lot,Bin,Heat,Serial_Number from ITEM_HISTORY where Date_History = '{0}' and Part = '{1}' and Location = '{2}' and (Time_item_history between '{3}' and '{4}') and Code_transaction = 'I40' and  Userid = '{5}' and Order_no = '{6}' and order_line = '{7}'  and Program_Used = 'INV060' Order by  Time_item_history Desc",v.Args.sPreDate,v.Local.sPart,v.Local.sLoc,v.Args.sPreTime,v.Local.sNow,v.Caller.User,v.Local.sOrder,v.Local.sLine,v.Local.sSQL)
+	f.ODBC.Connection!conx.ExecuteAndReturn(v.Local.sSQL,v.Local.sRet)
+	f.Intrinsic.Control.If(v.Local.sRet,<>,"")
+		f.Intrinsic.String.Split(v.Local.sRet,"*!*",v.Local.sRet)
+		f.Intrinsic.String.RPad(v.Local.sRet(0)," ",15,v.Local.sDepLot)
+		f.Intrinsic.String.RPad(v.Local.sRet(1)," ",6,v.Local.sDepBin)
+		f.Intrinsic.String.RPad(v.Local.sRet(2)," ",15,v.Local.sDepHeat)
+		f.Intrinsic.String.RPad(v.Local.sRet(3)," ",30,v.Local.sDepSerial)		
+		f.Intrinsic.Control.Else
+		f.Intrinsic.UI.Msgbox("No record found for I40 transaction in Item History to create Document Control Link","Attention")
+		f.Intrinsic.Control.CallSub("Unload")
+	f.Intrinsic.Control.EndIf	
+
+	'Generate Item Master Link ID
+	f.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}",v.Local.sPart,V.Local.sLoc,v.Local.sLot,v.Local.sBin,v.Local.sHeat,v.Local.sSerial,v.Local.sItemID)
+	'Activate the Item Master link
+	F.Global.DocumentControl.GetLinkID(v.Local.sItemID,31,v.Local.iItemLinkID)
+	f.Intrinsic.Control.If(v.Local.iItemLinkID,=,-1)
+		F.Global.DocumentControl.CreateReference(v.Local.sItemID,31,v.Local.iItemLinkID)
+	f.Intrinsic.Control.EndIf
+	
+	'Delete Link before copy !!!!!!!!!!!!!!!!!!!!!!!!
+	f.Intrinsic.String.Build("Delete from ATG_Doc_Assoc where Link_ID = '{0}'",v.Local.iItemLinkID,v.Local.sSQL)
+	f.ODBC.Connection!conx.Execute(v.Local.sSQL)
+	
+	'Copy Link ID from departure Serial Item
+	f.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}",v.Local.sPart,V.Local.sLoc,v.Local.sDepLot,v.Local.sDepBin,v.Local.sDepHeat,v.Local.sDepSerial,v.Local.sItemIDMaster)
+	F.Global.DocumentControl.GetLinkID(v.Local.sItemIDMaster,31,v.Local.iLinkIDMaster)
+	f.Intrinsic.Control.If(v.Local.iLinkIDMaster,<>,-1)
+		f.Intrinsic.String.Build("Select LINK_ID,FILE_TYPE,PATH,FILE,DESCRIPTION,DATE_ADDED,GS_USER,GRP_ID,INFO_1,INFO_2,STATUS,REV,INV_NON_REV from ATG_Doc_Assoc where Link_ID = '{0}' ",v.Local.iLinkIDMaster,v.Local.sSQL)
+		f.Data.DataTable.CreateFromSQL("LinkData","conx",v.Local.sSQL,True)
+		f.Intrinsic.Control.For(v.Local.iCnt,0,v.DataTable.LinkData.RowCount--,1)
+			v.Local.bINV_NON_REV.Set(v.DataTable.LinkData(v.Local.iCnt).INV_NON_REV!FieldValString)
+			f.Intrinsic.Control.IIF(v.Local.bINV_NON_REV,=,True,1,0,v.Local.iBit)
+			f.Intrinsic.String.Build("Insert into ATG_Doc_Assoc (LINK_ID,FILE_TYPE,PATH,FILE,DESCRIPTION,DATE_ADDED,GS_USER,GRP_ID,INFO_1,INFO_2,STATUS,REV,INV_NON_REV) values ({0},'{1}','{2}','{3}','{4}',Now(),'{5}','{6}','{7}','{8}','{9}','{10}',{11})",v.Local.iItemLinkID,v.DataTable.LinkData(v.Local.iCnt).FILE_TYPE!FieldValString,v.DataTable.LinkData(v.Local.iCnt).PATH!FieldValString,v.DataTable.LinkData(v.Local.iCnt).FILE!FieldValString,v.DataTable.LinkData(v.Local.iCnt).DESCRIPTION!FieldValString,v.Caller.User,v.DataTable.LinkData(v.Local.iCnt).GRP_ID!FieldValString,v.DataTable.LinkData(v.Local.iCnt).INFO_1!FieldValString,v.DataTable.LinkData(v.Local.iCnt).INFO_2!FieldValString,v.DataTable.LinkData(v.Local.iCnt).STATUS!FieldValString,v.DataTable.LinkData(v.Local.iCnt).REV!FieldValString,v.Local.iBit,v.Local.sSQL)
+			f.ODBC.Connection!conx.Execute(v.Local.sSQL)
+		f.Intrinsic.Control.Next(v.Local.iCnt)
+	f.Intrinsic.Control.EndIf	
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Subroutine called from:{6}{1}Error Occurred: {3}{1}Description: {4}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,v.Ambient.SubroutineCalledFrom,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End	
+F.Intrinsic.Control.EndTry
+
+Program.Sub.Create_Link_And_Copy_Docs.End
+
+Program.Sub.Delete_Link.Start
+f.Intrinsic.Control.Try
+	v.Local.sError.Declare
+	v.Local.sSQL.Declare
+	v.Local.sRet.Declare
+	v.Local.sItemID.Declare
+	v.Local.iItemLinkID.Declare(long)
+	v.Local.sPart.Declare
+	v.Local.sLoc.Declare
+	v.Local.sLot.Declare
+	v.Local.sHeat.Declare
+	v.Local.sSerial.Declare
+	v.Local.sBin.Declare
+	
+	v.Local.iNow.Declare
+	v.Local.sNow.Declare
+	v.Local.sOrder.Declare
+	v.Local.sLine.Declare
+	v.Local.iCnt.Declare
+	v.Local.sLinkID.Declare
+
+	'Part and Loc
+	f.Intrinsic.String.GSSPartString(Variable.Passed.000005,Variable.Passed.000006,v.Local.sPart)
+	f.Intrinsic.String.RPad(Variable.Passed.000008," ",2,v.Local.sLoc)
+	
+	'Order and Line
+	f.Intrinsic.String.LPad(Variable.Passed.000145,"0",7,v.Local.sOrder)
+	f.Intrinsic.String.LPad(Variable.Passed.000147,"0",3,v.Local.sLine)
+
+	'Get Now in milisec
+	v.Local.iNow.Set(v.Ambient.Now.FormatHHNNSS)
+	f.Intrinsic.Math.Add(v.Local.iNow,1,v.Local.iNow)
+	f.Intrinsic.String.Build("{0}00",v.Local.iNow,v.Local.sNow)	
+	
+	f.Intrinsic.String.Build("select Lot,Bin,Heat,Serial_Number from ITEM_HISTORY where Date_History = '{0}' and Part = '{1}' and Location = '{2}' and (Time_item_history between '{3}' and '{4}') and Code_transaction = 'I50' and  Userid = '{5}' and Order_no = '{6}' and order_line = '{7}'  and Program_Used = 'INV060'",v.Args.sPreDate,v.Local.sPart,v.Local.sLoc,v.Args.sPreTime,v.Local.sNow,v.Caller.User,v.Local.sOrder,v.Local.sLine,v.Local.sSQL)
+	f.ODBC.Connection!conx.ExecuteAndReturn(v.Local.sSQL,v.Local.sRet)
+	f.Intrinsic.Control.If(v.Local.sRet,<>,"")
+		f.Intrinsic.String.Split(v.Local.sRet,"*!*",v.Local.sRet)
+		f.Intrinsic.String.RPad(v.Local.sRet(0)," ",15,v.Local.sLot)
+		f.Intrinsic.String.RPad(v.Local.sRet(1)," ",6,v.Local.sBin)
+		f.Intrinsic.String.RPad(v.Local.sRet(2)," ",15,v.Local.sHeat)
+		f.Intrinsic.String.RPad(v.Local.sRet(3)," ",30,v.Local.sSerial)		
+		f.Intrinsic.Control.Else
+		f.Intrinsic.UI.Msgbox("No record found in Item History to delete Document Control Link","Attention")
+		f.Intrinsic.Control.CallSub("Unload")
+	f.Intrinsic.Control.EndIf	
+
+	'Generate Link ID
+	f.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}",v.Local.sPart,V.Local.sLoc,v.Local.sLot,v.Local.sBin,v.Local.sHeat,v.Local.sSerial,v.Local.sItemID)
+	'Activate the Item Master link
+	F.Global.DocumentControl.GetLinkID(v.Local.sItemID,31,v.Local.iItemLinkID)
+	f.Intrinsic.Control.If(v.Local.iItemLinkID,<>,-1)
+		'Delete Link before copy !!!!!!!!!!!!!!!!!!!!!!!!
+		f.Intrinsic.String.Build("Delete from ATG_Doc_Assoc where Link_ID = '{0}'",v.Local.iItemLinkID,v.Local.sSQL)
+		f.ODBC.Connection!conx.Execute(v.Local.sSQL)	
+		f.Intrinsic.String.LPad(v.Local.iItemLinkID,"0",9,v.Local.sLinkID)
+		f.Intrinsic.String.Build("Delete from Link_Data where Link_ID = '{0}' and Type = '00031'",v.Local.sLinkID,v.Local.sSQL)
+		f.ODBC.Connection!conx.Execute(v.Local.sSQL)
+	f.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Subroutine called from:{6}{1}Error Occurred: {3}{1}Description: {4}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,v.Ambient.SubroutineCalledFrom,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End	
+F.Intrinsic.Control.EndTry
+Program.Sub.Delete_Link.End
