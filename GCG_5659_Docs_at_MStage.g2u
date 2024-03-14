@@ -1,0 +1,248 @@
+Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+v.Global.bNewPackingList.Declare
+v.Global.sResult.Declare
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'BN, Sept 4, 2019
+'Customer: Brunswick
+'GS Mobile Staging Shipments will create a Doc Control Link for the Item allocated
+F.Intrinsic.Control.SetErrorHandler("Main")
+F.Intrinsic.Control.ClearErrors
+	v.Local.sError.Declare
+	
+	F.ODBC.Connection!Conx.OpenConnection(Variable.ambient.PDSN,Variable.Ambient.PUSER,Variable.Ambient.PPass,600)
+	
+	'S10 - Post Staging hook
+	f.Intrinsic.Control.If(v.Caller.Hook,=,31952)		
+		f.Intrinsic.Control.CallSub("Process")		
+	f.Intrinsic.Control.EndIf
+
+	f.Intrinsic.Control.CallSub("Unload")
+
+F.Intrinsic.Control.Label("Main")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_5659_Docs_at_MStage",V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	f.Intrinsic.Control.CallSub("Write_Error_Log","sError",v.Local.sError)
+	f.Intrinsic.Control.CallSub("Unload")
+Function.Intrinsic.Control.EndIf
+Program.Sub.Main.End
+
+Program.Sub.Unload.Start
+F.Intrinsic.Control.SetErrorHandler("Unload")
+F.Intrinsic.Control.ClearErrors
+	
+	F.Intrinsic.Control.If(V.ODBC.conx.State,=,1)
+		F.ODBC.Connection!conx.close
+	F.Intrinsic.Control.EndIf
+	
+	f.Intrinsic.Control.End
+
+F.Intrinsic.Control.Label("Unload")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	f.Intrinsic.Control.End
+Function.Intrinsic.Control.EndIf
+Program.Sub.Unload.End
+
+
+Program.Sub.Process.Start
+F.Intrinsic.Control.SetErrorHandler("Process")
+F.Intrinsic.Control.ClearErrors
+	v.Local.sError.Declare	
+	v.Local.sRet.Declare
+	v.Local.sSQL.Declare	
+	v.Local.sPreDate.Declare
+	v.Local.sPreTime.Declare
+	
+	v.Local.sOrder.Declare
+	v.Local.sLine.Declare
+	v.Local.sPart.Declare
+	v.Local.sLocation.Declare
+	v.Local.sLot.Declare
+	v.Local.sBin.Declare
+	v.Local.sHeat.Declare
+	v.Local.sSerial.Declare
+	
+	v.Local.sDepLot.Declare
+	v.Local.sDepHeat.Declare
+	v.Local.sDepSerial.Declare
+	v.Local.sDepBin.Declare		
+	
+	v.Local.sCurrentTransID.Declare
+	v.Local.sNow.Declare
+	v.Local.iNow.Declare
+	
+	v.Local.sMsg.Declare
+	v.Local.sItemID.Declare
+	v.Local.iItemLinkID.Declare
+	v.Local.iCnt.Declare
+
+	v.Local.sItemIDMaster.Declare
+	v.Local.iLinkIDMaster.Declare
+	v.Local.bInv_Non_Rev.Declare
+	v.Local.iBit.Declare
+	
+	
+	'Get Current Transaction ID of the Main Line
+	v.Local.sCurrentTransID.Set(v.Passed.Line-ID)	
+	f.Intrinsic.String.Build("select * from v_wireless_hdr where Trans_ID = '{0}'",v.Local.sCurrentTransID,v.Local.sSQL)
+	f.ODBC.Connection!conx.OpenRecordsetRW("rstCurrentHeader",v.Local.sSQL)
+	f.Intrinsic.Control.If(V.ODBC.conx!rstCurrentHeader.EOF)
+		f.Intrinsic.Control.ExitSub
+	f.Intrinsic.Control.EndIf
+	F.ODBC.conx!rstCurrentHeader.Close
+	
+	'Check successfull flag?
+'	f.Intrinsic.Control.If(v.ODBC.conx!rstCurrentHeader.FieldValTrim!Successful_Flag,<>,"Y")
+'		f.Intrinsic.Control.ExitSub
+'	f.Intrinsic.Control.EndIf
+	
+	f.Intrinsic.String.Build("select * from wireless_Line where Trans_ID = '{0}'",v.Local.sCurrentTransID,v.Local.sSQL)
+	f.ODBC.Connection!conx.OpenRecordsetRW("rstCurrentLine",v.Local.sSQL)
+	f.Intrinsic.Control.If(V.ODBC.conx!rstCurrentLine.EOF)
+		f.Intrinsic.Control.ExitSub
+	f.Intrinsic.Control.EndIf
+	
+	'Get Current Order, and Current Line number
+	v.Local.sOrder.Set(v.ODBC.conx!rstCurrentLine.FieldValTrim!Field_2)
+	v.Local.sLine.Set(v.ODBC.conx!rstCurrentLine.FieldValTrim!Field_3)
+	v.Local.sPart.Set(v.ODBC.conx!rstCurrentLine.FieldValTrim!Field_4)
+	v.Local.sLocation.Set(v.ODBC.conx!rstCurrentLine.FieldValTrim!Field_5)
+	v.Local.sLot.Set(v.ODBC.conx!rstCurrentLine.FieldValTrim!Field_6)
+	v.Local.sBin.Set(v.ODBC.conx!rstCurrentLine.FieldValTrim!Field_7)
+	v.Local.sHeat.Set(v.ODBC.conx!rstCurrentLine.FieldValTrim!Field_8)
+	'v.Local.sSerial.Set(v.ODBC.conx!rstCurrentLine.FieldValTrim!Field_9)
+	
+	v.Local.sPreDate.Set(v.ODBC.conx!rstCurrentLine.FieldValTrim!Date_Last_Chg)
+	v.Local.sPreTime.Set(v.ODBC.conx!rstCurrentLine.FieldValTrim!Time_Last_Chg)	
+	F.ODBC.conx!rstCurrentLine.Close
+
+	'Get Now in milisec
+	v.Local.iNow.Set(v.Ambient.Now.FormatHHNNSS)
+	f.Intrinsic.Math.Add(v.Local.iNow,1,v.Local.iNow)
+	f.Intrinsic.String.LPad(v.Local.iNow,"0",6,v.Local.sNow)
+	f.Intrinsic.String.Build("{0}00",v.Local.sNow,v.Local.sNow)
+	
+	'Retrieve the item allocated from item_history - Destination (I10)
+	f.Intrinsic.String.Build("select Top 1 Lot,Bin,Heat,Serial_Number from ITEM_HISTORY where Date_History = '{0}' and Part = '{1}' and Location = '{2}' and (Time_item_history between '{3}' and '{4}') and Code_transaction = 'I10' and  Userid = '{5}' and Order_no = '{6}' and order_line = '{7}'  and Program_Used = 'INV060' Order by  Time_item_history Desc",v.Local.sPreDate.Right6,v.Local.sPart,v.Local.sLocation,v.Local.sPreTime,v.Local.sNow,v.Caller.User.Trim,v.Local.sOrder,v.Local.sLine,v.Local.sSQL)
+	F.ODBC.Connection!Conx.ExecuteAndReturn(v.Local.sSQL,v.Local.sRet)
+	f.Intrinsic.Control.If(v.Local.sRet,<>,"")
+		f.Intrinsic.String.Split(v.Local.sRet,"*!*",v.Local.sRet)
+		f.Intrinsic.String.RPad(v.Local.sRet(0)," ",15,v.Local.sLot)
+		f.Intrinsic.String.RPad(v.Local.sRet(1)," ",6,v.Local.sBin)
+		f.Intrinsic.String.RPad(v.Local.sRet(2)," ",15,v.Local.sHeat)
+		f.Intrinsic.String.RPad(v.Local.sRet(3)," ",30,v.Local.sSerial)		
+	f.Intrinsic.Control.Else
+		f.Intrinsic.String.Build("No record found for I10 transaction in Item History to create Document Control Link for Order: {0}, Line: {1}, Part: {2}, Location: {3}, Lot: {4}, Bin: {5}, Heat: {6}, Serial: {7} with Query: {8}",v.Local.sOrder,v.Local.sLine,v.Local.sPart,v.Local.sLocation,v.Local.sLot,v.Local.sBin,v.Local.sHeat,v.Local.sSerial,v.Local.sSQL,v.Local.sMsg)
+		f.Intrinsic.Control.CallSub("Write_Error_Log","sError",v.Local.sMsg)
+		f.Intrinsic.Control.CallSub("Unload")
+	f.Intrinsic.Control.EndIf
+	
+	'Retrieve the item allocated from item_history - Departure (I40)
+	f.Intrinsic.String.Build("select Top 1 Lot,Bin,Heat,Serial_Number from ITEM_HISTORY where Date_History = '{0}' and Part = '{1}' and Location = '{2}' and (Time_item_history between '{3}' and '{4}') and Code_transaction = 'I40' and  Userid = '{5}' and Order_no = '{6}' and order_line = '{7}'  and Program_Used = 'INV060' Order by  Time_item_history Desc",v.Local.sPreDate.Right6,v.Local.sPart,v.Local.sLocation,v.Local.sPreTime,v.Local.sNow,v.Caller.User.Trim,v.Local.sOrder,v.Local.sLine,v.Local.sSQL)
+	F.ODBC.Connection!Conx.ExecuteAndReturn(v.Local.sSQL,v.Local.sRet)
+	f.Intrinsic.Control.If(v.Local.sRet,<>,"")
+		f.Intrinsic.String.Split(v.Local.sRet,"*!*",v.Local.sRet)
+		f.Intrinsic.String.RPad(v.Local.sRet(0)," ",15,v.Local.sDepLot)
+		f.Intrinsic.String.RPad(v.Local.sRet(1)," ",6,v.Local.sDepBin)
+		f.Intrinsic.String.RPad(v.Local.sRet(2)," ",15,v.Local.sDepHeat)
+		f.Intrinsic.String.RPad(v.Local.sRet(3)," ",30,v.Local.sDepSerial)		
+	f.Intrinsic.Control.Else
+		f.Intrinsic.String.Build("No record found for I40 transaction in Item History to create Document Control Link for Order: {0}, Line: {1}, Part: {2}, Location: {3}, Lot: {4}, Bin: {5}, Heat: {6}, Serial: {7} with Query: {8}",v.Local.sOrder,v.Local.sLine,v.Local.sPart,v.Local.sLocation,v.Local.sLot,v.Local.sBin,v.Local.sHeat,v.Local.sSerial,v.Local.sSQL,v.Local.sMsg)
+		f.Intrinsic.Control.CallSub("Write_Error_Log","sError",v.Local.sMsg)
+		f.Intrinsic.Control.CallSub("Unload")
+	f.Intrinsic.Control.EndIf
+
+	
+	'Generate Item Master Link ID
+	f.Intrinsic.String.RPad(v.Local.sPart," ",20,v.Local.sPart)
+	f.Intrinsic.String.RPad(v.Local.sLocation," ",2,v.Local.sLocation)
+	f.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}",v.Local.sPart,V.Local.sLocation,v.Local.sLot,v.Local.sBin,v.Local.sHeat,v.Local.sSerial,v.Local.sItemID)
+	'Activate the Item Master link
+	F.Global.DocumentControl.GetLinkID(v.Local.sItemID,31,v.Local.iItemLinkID)
+	f.Intrinsic.Control.If(v.Local.iItemLinkID,=,-1)
+		F.Global.DocumentControl.CreateReference(v.Local.sItemID,31,v.Local.iItemLinkID)
+	f.Intrinsic.Control.EndIf	
+	
+	'Delete Link before copy !!!!!!!!!!!!!!!!!!!!!!!!
+	f.Intrinsic.String.Build("Delete from ATG_Doc_Assoc where Link_ID = '{0}'",v.Local.iItemLinkID,v.Local.sSQL)
+	f.ODBC.Connection!conx.Execute(v.Local.sSQL)	
+	
+	'Copy Link ID from blank Serial Item
+	f.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}",v.Local.sPart,v.Local.sLocation,v.Local.sDepLot,v.Local.sDepBin,v.Local.sDepHeat,v.Local.sDepSerial,v.Local.sItemIDMaster)
+	F.Global.DocumentControl.GetLinkID(v.Local.sItemIDMaster,31,v.Local.iLinkIDMaster)
+	f.Intrinsic.Control.If(v.Local.iLinkIDMaster,<>,-1)
+		f.Intrinsic.String.Build("Select LINK_ID,FILE_TYPE,PATH,FILE,DESCRIPTION,DATE_ADDED,GS_USER,GRP_ID,INFO_1,INFO_2,STATUS,REV,INV_NON_REV from ATG_Doc_Assoc where Link_ID = '{0}' ",v.Local.iLinkIDMaster,v.Local.sSQL)
+		f.Data.DataTable.CreateFromSQL("LinkData","conx",v.Local.sSQL,True)
+		f.Intrinsic.Control.For(v.Local.iCnt,0,v.DataTable.LinkData.RowCount--,1)
+			v.Local.bINV_NON_REV.Set(v.DataTable.LinkData(v.Local.iCnt).INV_NON_REV!FieldValString)
+			f.Intrinsic.Control.IIF(v.Local.bINV_NON_REV,=,True,1,0,v.Local.iBit)
+			f.Intrinsic.String.Build("Insert into ATG_Doc_Assoc (LINK_ID,FILE_TYPE,PATH,FILE,DESCRIPTION,DATE_ADDED,GS_USER,GRP_ID,INFO_1,INFO_2,STATUS,REV,INV_NON_REV) values ({0},'{1}','{2}','{3}','{4}',Now(),'{5}','{6}','{7}','{8}','{9}','{10}',{11})",v.Local.iItemLinkID,v.DataTable.LinkData(v.Local.iCnt).FILE_TYPE!FieldValString,v.DataTable.LinkData(v.Local.iCnt).PATH!FieldValString,v.DataTable.LinkData(v.Local.iCnt).FILE!FieldValString,v.DataTable.LinkData(v.Local.iCnt).DESCRIPTION!FieldValString,v.Caller.User,v.DataTable.LinkData(v.Local.iCnt).GRP_ID!FieldValString,v.DataTable.LinkData(v.Local.iCnt).INFO_1!FieldValString,v.DataTable.LinkData(v.Local.iCnt).INFO_2!FieldValString,v.DataTable.LinkData(v.Local.iCnt).STATUS!FieldValString,v.DataTable.LinkData(v.Local.iCnt).REV!FieldValString,v.Local.iBit,v.Local.sSQL)
+			f.ODBC.Connection!conx.Execute(v.Local.sSQL)
+		f.Intrinsic.Control.Next(v.Local.iCnt)
+	f.Intrinsic.Control.EndIf	
+
+	f.Intrinsic.Control.ExitSub
+	
+F.Intrinsic.Control.Label("Process")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_5659_Docs_at_MStage",V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	f.Intrinsic.Control.CallSub("Write_Error_Log","sError",v.Local.sError)
+	f.Intrinsic.Control.CallSub("Unload")
+Function.Intrinsic.Control.EndIf
+Program.Sub.Process.End
+
+
+Program.Sub.Write_Error_Log.Start
+'Parameters: sError
+F.Intrinsic.Control.SetErrorHandler("Write_Error_Log")
+F.Intrinsic.Control.ClearErrors
+	v.Local.bExist.Declare
+	v.Local.sFile.Declare
+	v.Local.sDir.Declare
+	
+	f.Intrinsic.String.Build("{0}\Custom",v.Caller.GlobalDir,v.Local.sDir)
+	f.Intrinsic.File.DirExists(v.Local.sDir,v.Local.bExist)
+	f.Intrinsic.Control.If(v.Local.bExist.Not)
+		f.Intrinsic.File.CreateDir(v.Local.sDir)
+	f.Intrinsic.Control.EndIf
+	
+	f.Intrinsic.String.Build("{0}\Custom\5659",v.Caller.GlobalDir,v.Local.sDir)
+	f.Intrinsic.File.DirExists(v.Local.sDir,v.Local.bExist)
+	f.Intrinsic.Control.If(v.Local.bExist.Not)
+		f.Intrinsic.File.CreateDir(v.Local.sDir)
+	f.Intrinsic.Control.EndIf
+	
+	f.Intrinsic.String.Build("{0}\Custom\5659\{1}",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sDir)
+	f.Intrinsic.File.DirExists(v.Local.sDir,v.Local.bExist)
+	f.Intrinsic.Control.If(v.Local.bExist.Not)
+		f.Intrinsic.File.CreateDir(v.Local.sDir)
+	f.Intrinsic.Control.EndIf	
+	
+	f.Intrinsic.String.Build("{0}\Custom\5659\{1}\Mobile",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sDir)
+	f.Intrinsic.File.DirExists(v.Local.sDir,v.Local.bExist)
+	f.Intrinsic.Control.If(v.Local.bExist.Not)
+		f.Intrinsic.File.CreateDir(v.Local.sDir)
+	f.Intrinsic.Control.EndIf
+	
+	'Write file
+	f.Intrinsic.String.Build("{0}\Custom\5659\{1}\Mobile\{2}",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Ambient.Now.FormatYYYYMMDDHHNNSS,v.Local.sFile)
+	f.Intrinsic.File.String2File(v.Local.sFile,v.Args.sError)
+
+	f.Intrinsic.Control.ExitSub
+	
+F.Intrinsic.Control.Label("Write_Error_Log")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_5659_Docs_at_MStage",V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	f.Intrinsic.Control.CallSub("Write_Error_Log","sError",v.Local.sError)
+	f.Intrinsic.Control.CallSub("Unload")
+Function.Intrinsic.Control.EndIf
+Program.Sub.Write_Error_Log.End
+
+
+
+
+
